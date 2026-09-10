@@ -78,17 +78,39 @@ impl From<CaseConversionPolicy> for ValidationCase {
 /// Validate a `RawModuleDefV10` and convert it into a `ModuleDef`,
 /// or return a stream of errors if the definition is invalid.
 pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
-    let environment = validate_environment(&def);
-    let mut typespace = def.typespace().cloned().unwrap_or_else(|| Typespace::EMPTY.clone());
-    let known_type_definitions = def.types().into_iter().flatten().map(|def| def.ty);
-    let case_policy = def.case_conversion_policy().into();
-    let explicit_names = def
-        .explicit_names()
-        .cloned()
-        .map(ExplicitNamesLookup::new)
-        .unwrap_or_default();
-    let view_primary_keys = def.view_primary_keys().cloned().unwrap_or_default();
-    let submodules = validate_submodules(def.submodules().into_iter().flat_map(|s| s.iter().cloned()).collect());
+    let RawModuleDefV10Sections {
+        typespace,
+        types,
+        tables,
+        reducers,
+        procedures,
+        views,
+        schedules,
+        life_cycle_reducers,
+        row_level_security,
+        case_conversion_policy,
+        explicit_names,
+        http_handlers,
+        http_routes,
+        view_primary_keys,
+        submodules,
+        environment,
+    } = def.into_sections();
+
+    let mut typespace = typespace.unwrap_or_default();
+    let known_type_definitions = types.iter().flatten().map(|def| def.ty);
+    let case_policy = case_conversion_policy.unwrap_or_default().into();
+    let explicit_names = explicit_names.map(ExplicitNamesLookup::new).unwrap_or_default();
+    let view_primary_keys = view_primary_keys.unwrap_or_default();
+    let submodules = validate_submodules(submodules.into_iter().flatten().collect());
+    let environment = environment
+        .map(|env| {
+            let declarations = env.into_iter().map(Into::into).collect();
+            spacetimedb_lib::environment::EnvironmentSchema::from_declarations(declarations)
+        })
+        .transpose()
+        .map_err(ValidationError::from)
+        .map_err(ValidationErrors::from);
 
     // Original `typespace` needs to be preserved to be assign `accesor_name`s to columns.
     let typespace_with_accessor_names = typespace.clone();
@@ -120,9 +142,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
     // `combine_errors` or `collect_all_errors` on all the things we need to validate.
     // Sometimes it is unavoidable to use `?` early and this should be commented on.
 
-    let reducers = def
-        .reducers()
-        .cloned()
+    let reducers = reducers
         .into_iter()
         .flatten()
         .map(|reducer| validator.validate_reducer_def(reducer))
@@ -130,9 +150,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         // Later on, in `check_function_names_are_unique`, we'll transform this into an `IndexMap`.
         .collect_all_errors::<Vec<_>>();
 
-    let procedures = def
-        .procedures()
-        .cloned()
+    let procedures = procedures
         .into_iter()
         .flatten()
         .map(|procedure| {
@@ -144,9 +162,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         // Later on, in `check_function_names_are_unique`, we'll transform this into an `IndexMap`.
         .collect_all_errors::<Vec<_>>();
 
-    let http_handlers = def
-        .http_handlers()
-        .cloned()
+    let http_handlers = http_handlers
         .into_iter()
         .flatten()
         .map(|handler| {
@@ -156,9 +172,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         })
         .collect_all_errors::<Vec<_>>();
 
-    let views = def
-        .views()
-        .cloned()
+    let views = views
         .into_iter()
         .flatten()
         .map(|view| {
@@ -168,9 +182,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         })
         .collect_all_errors();
 
-    let tables = def
-        .tables()
-        .cloned()
+    let tables = tables
         .into_iter()
         .flatten()
         .map(|table| {
@@ -181,9 +193,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         .collect_all_errors();
 
     let mut refmap = HashMap::default();
-    let types = def
-        .types()
-        .cloned()
+    let types = types
         .into_iter()
         .flatten()
         .map(|ty| {
@@ -199,8 +209,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         .as_ref()
         .ok()
         .map(|tables_map| {
-            def.schedules()
-                .cloned()
+            schedules
                 .into_iter()
                 .flatten()
                 .map(|schedule| validator.validate_schedule_def(schedule, tables_map))
@@ -213,8 +222,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         .as_ref()
         .ok()
         .map(|reducers_vec| {
-            def.lifecycle_reducers()
-                .cloned()
+            life_cycle_reducers
                 .into_iter()
                 .flatten()
                 .map(|lifecycle_def| {
@@ -244,9 +252,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
 
     let http_handlers_and_routes = http_handlers.and_then(|handlers| {
         let handlers = check_http_handler_names_are_unique(handlers)?;
-        let routes = def
-            .http_routes()
-            .cloned()
+        let routes = http_routes
             .into_iter()
             .flatten()
             .map(|route| validator.validate_http_route_def(route, &handlers))
@@ -291,8 +297,7 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
         ..
     } = validator.core;
 
-    let row_level_security_raw = def
-        .row_level_security()
+    let row_level_security_raw = row_level_security
         .into_iter()
         .flatten()
         .map(|rls| (rls.sql.clone(), rls.to_owned()))
@@ -334,19 +339,6 @@ pub fn validate(def: RawModuleDefV10) -> Result<ModuleDef> {
     module_def.assert_namespaces_applied(&NamespacePath::root());
 
     Ok(module_def)
-}
-
-fn validate_environment(def: &RawModuleDefV10) -> Result<Option<spacetimedb_lib::environment::EnvironmentSchema>> {
-    let Some(declarations) = def.sections.iter().find_map(|section| match section {
-        RawModuleDefV10Section::Environment(declarations) => Some(declarations),
-        _ => None,
-    }) else {
-        return Ok(None);
-    };
-    let declarations = declarations.iter().map(|x| x.clone().into()).collect();
-    let schema = spacetimedb_lib::environment::EnvironmentSchema::from_declarations(declarations)
-        .map_err(ValidationError::from)?;
-    Ok(Some(schema))
 }
 
 /// Validate that each submodule's namespace is a valid identifier of at most 63 characters,
