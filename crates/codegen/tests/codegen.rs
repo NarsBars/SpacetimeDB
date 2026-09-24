@@ -86,3 +86,152 @@ fn submodule_reducer_wire_name_is_qualified_once() {
         "namespace was applied twice somewhere in the generated bindings"
     );
 }
+/// Generate Unreal bindings for `module` as the Unreal module `TestModule`, keyed by
+/// `/`-separated file name. Unreal codegen reads (and may edit) the project's `.uproject`,
+/// so this runs against a throwaway project directory.
+fn generate_unreal(module: &ModuleDef) -> HashMap<String, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let project = std::env::temp_dir().join(format!(
+        "spacetimedb-codegen-unreal-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&project).expect("create the test project directory");
+    std::fs::write(
+        project.join("TestProject.uproject"),
+        r#"{"FileVersion": 3, "Modules": [{"Name": "TestModule", "Type": "Runtime", "LoadingPhase": "Default"}]}"#,
+    )
+    .expect("write the test .uproject");
+    let unreal = spacetimedb_codegen::UnrealCpp {
+        module_name: "TestModule",
+        uproject_dir: &project,
+        module_prefix: "",
+    };
+    let files = generate(module, &unreal, &CodegenOptions::default())
+        .into_iter()
+        .map(|f| (f.filename.replace('\\', "/"), f.code))
+        .collect();
+    let _ = std::fs::remove_dir_all(&project);
+    files
+}
+
+/// The generated Unreal project must be self-consistent: every `ModuleBindings/...` include
+/// resolves to a generated file, and every `U<X>Table` class the client registers is declared.
+fn assert_unreal_bindings_consistent(files: &HashMap<String, String>) {
+    let public = "Source/TestModule/Public/";
+    for (file, code) in files {
+        for line in code.lines() {
+            if let Some(rest) = line.trim().strip_prefix("#include \"ModuleBindings/") {
+                let target = format!("{public}ModuleBindings/{}", rest.trim_end_matches('"'));
+                assert!(
+                    files.contains_key(&target),
+                    "{file} includes {target}, which was not generated"
+                );
+            }
+        }
+    }
+    let registration = regex::Regex::new(r"RegisterTable<\s*F\w+\s*,\s*U(\w+)Table\s*,").unwrap();
+    let client = files
+        .get("Source/TestModule/Private/ModuleBindings/SpacetimeDBClient.g.cpp")
+        .expect("client source");
+    let registered: Vec<&str> = registration
+        .captures_iter(client)
+        .map(|c| c.get(1).unwrap().as_str())
+        .collect();
+    assert!(!registered.is_empty(), "the client registers no tables");
+    for stem in registered {
+        let declaration = format!("class TESTMODULE_API U{stem}Table ");
+        assert!(
+            files.values().any(|code| code.contains(&declaration)),
+            "the client registers U{stem}Table, which no generated header declares"
+        );
+    }
+}
+
+/// Unreal names a table's (or view's) own files and `U<X>Table` class after its accessor, as the
+/// client files (`SpacetimeDBClient.g.h/.g.cpp`) that include, construct and register it do. A
+/// table renamed with `#[table(accessor = new, name = "old")]`, or any explicit table or view
+/// name, has an accessor that differs from its wire name. The two used to disagree -- files named
+/// after the wire name, client includes after the accessor -- so the generated Unreal project
+/// failed to compile. The wire name stays in `TableName`.
+#[test]
+fn test_unreal_table_files_follow_accessor_names() {
+    use spacetimedb_lib::db::raw_def::v10::{ExplicitNames, RawModuleDefV10Builder};
+    use spacetimedb_lib::{AlgebraicType, ProductType};
+
+    let mut builder = RawModuleDefV10Builder::new();
+    builder
+        .build_table_with_new_type("renamed_table", ProductType::from([("id", AlgebraicType::U64)]), true)
+        .finish();
+    let view_row = builder.add_algebraic_type(
+        [],
+        "view_row",
+        AlgebraicType::product([("id", AlgebraicType::U64)]),
+        true,
+    );
+    builder.add_view(
+        "renamed_view",
+        0,
+        true,
+        true,
+        ProductType::unit(),
+        AlgebraicType::array(AlgebraicType::Ref(view_row)),
+    );
+    let mut explicit = ExplicitNames::default();
+    explicit.insert_table("renamed_table", "original_table");
+    explicit.insert_function("renamed_view", "original_view");
+    builder.add_explicit_names(explicit);
+    let module: ModuleDef = builder.finish().try_into().expect("module should validate");
+
+    let files = generate_unreal(&module);
+    let names = || files.keys().cloned().collect::<Vec<_>>();
+    for (accessor, wire) in [("RenamedTable", "original_table"), ("RenamedView", "original_view")] {
+        let header_path = format!("Source/TestModule/Public/ModuleBindings/Tables/{accessor}Table.g.h");
+        let header = files
+            .get(&header_path)
+            .unwrap_or_else(|| panic!("no {header_path}; generated: {:?}", names()));
+        assert!(
+            header.contains(&format!("class TESTMODULE_API U{accessor}Table ")),
+            "{header_path}"
+        );
+        assert!(
+            header.contains(&format!("\"{accessor}Table.g.generated.h\"")),
+            "{header_path}"
+        );
+        assert!(
+            header.contains(&format!("TableName = TEXT(\"{wire}\")")),
+            "{header_path} must keep the wire name"
+        );
+        let source_path = format!("Source/TestModule/Private/ModuleBindings/Tables/{accessor}Table.g.cpp");
+        let source = files
+            .get(&source_path)
+            .unwrap_or_else(|| panic!("no {source_path}; generated: {:?}", names()));
+        assert!(
+            source.contains(&format!("#include \"ModuleBindings/Tables/{accessor}Table.g.h\"")),
+            "{source_path}"
+        );
+    }
+    assert!(
+        !files
+            .keys()
+            .any(|name| name.contains("OriginalTable") || name.contains("OriginalView")),
+        "no file may be named after a wire name: {:?}",
+        names()
+    );
+    assert_unreal_bindings_consistent(&files);
+}
+
+/// `sdk-test-case-conversion` gives a table and a view explicit names that differ from their
+/// accessors (`Player1Canonical` / `player1`, `Level2Person` / `person_at_level_2`). The Rust SDK
+/// is tested against it; its Unreal bindings must at least be self-consistent.
+#[test]
+fn test_unreal_codegen_case_conversion_module_is_consistent() {
+    let module = CompiledModule::compile("sdk-test-case-conversion", CompilationMode::Debug).extract_schema_blocking();
+    let files = generate_unreal(&module);
+    for stem in ["Player1", "PersonAtLevel2"] {
+        let header_path = format!("Source/TestModule/Public/ModuleBindings/Tables/{stem}Table.g.h");
+        assert!(files.contains_key(&header_path), "missing {header_path}");
+    }
+    assert_unreal_bindings_consistent(&files);
+}
