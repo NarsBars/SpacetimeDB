@@ -14,7 +14,7 @@ integration.
 - SpacetimeDB specific types (see `UNREAL_BSATN_ADDITIONS.md`)
 
 ## API Highlights
-- `UE_SPACETIMEDB_STRUCT` &ndash; enable struct serialization (up to 10 fields)
+- `UE_SPACETIMEDB_STRUCT` &ndash; enable struct serialization (up to 50 fields)
 - `UE_SPACETIMEDB_ENABLE_TARRAY(T)` &ndash; allow `TArray` of custom types
 - `UE_SPACETIMEDB_ENABLE_TOPTIONAL(T)` &ndash; allow `TOptional` of custom types
 - `Serialize(value)` / `Deserialize<T>(bytes)` convenience helpers
