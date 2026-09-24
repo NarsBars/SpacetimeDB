@@ -43,7 +43,9 @@ impl Lang for UnrealCpp<'_> {
     fn generate_table_file_from_schema(&self, module: &ModuleDef, table: &TableDef, schema: TableSchema) -> OutputFile {
         let module_prefix = self.module_prefix;
         let struct_name = type_ref_name(self.module_prefix, module, table.product_type_ref);
-        let table_pascal = format!("{module_prefix}{}", table.name.deref().to_case(Case::Pascal));
+        // Class and file names follow the accessor, as in the client (SpacetimeDBClient.g.h/.g.cpp)
+        // that includes and registers this table; `table_name` below stays the wire name.
+        let table_pascal = format!("{module_prefix}{}", table.accessor_name.deref().to_case(Case::Pascal));
         let self_header = table_pascal.clone() + "Table";
 
         let mut output = UnrealCppAutogen::new(
@@ -406,7 +408,7 @@ impl Lang for UnrealCpp<'_> {
             filename: format!(
                 "Source/{}/Public/ModuleBindings/Tables/{}Table.g.h",
                 self.module_name,
-                format_args!("{module_prefix}{}", table.name.deref().to_case(Case::Pascal))
+                format_args!("{module_prefix}{}", table.accessor_name.deref().to_case(Case::Pascal))
             ),
             code: output.into_inner(),
         }
@@ -1138,7 +1140,7 @@ impl Lang for UnrealCpp<'_> {
             let table_cpp_filename = format!(
                 "Source/{}/Private/ModuleBindings/Tables/{}Table.g.cpp",
                 self.module_name,
-                format_args!("{module_prefix}{}", table.name.deref().to_case(Case::Pascal))
+                format_args!("{module_prefix}{}", table.accessor_name.deref().to_case(Case::Pascal))
             );
             files.push(OutputFile {
                 filename: table_cpp_filename,
@@ -1154,7 +1156,7 @@ impl Lang for UnrealCpp<'_> {
             let view_cpp_filename = format!(
                 "Source/{}/Private/ModuleBindings/Tables/{}Table.g.cpp",
                 self.module_name,
-                format_args!("{module_prefix}{}", view.name.deref().to_case(Case::Pascal))
+                format_args!("{module_prefix}{}", view.accessor_name.deref().to_case(Case::Pascal))
             );
             files.push(OutputFile {
                 filename: view_cpp_filename,
@@ -1174,7 +1176,7 @@ fn generate_table_cpp(
     module_name: &str,
     schema: &TableSchema,
 ) -> String {
-    let table_pascal = format!("{module_prefix}{}", table.name.deref().to_case(Case::Pascal));
+    let table_pascal = format!("{module_prefix}{}", table.accessor_name.deref().to_case(Case::Pascal));
     let struct_name = type_ref_name(module_prefix, module, table.product_type_ref);
     let row_struct = format!("F{struct_name}Type");
 
