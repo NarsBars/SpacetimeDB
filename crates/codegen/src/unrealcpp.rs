@@ -3556,18 +3556,78 @@ fn generate_query_builder_types(
         writeln!(output);
     }
 
-    writeln!(output, "UCLASS(BlueprintType)");
-    writeln!(
-        output,
-        "class {api_macro} U{module_prefix}QueryBuilderBlueprintLibrary : public UBlueprintFunctionLibrary"
-    );
-    writeln!(output, "{{");
-    writeln!(output, "    GENERATED_BODY()");
-    writeln!(output);
-    writeln!(output, "public:");
-    writeln!(output);
+    // HARBINGER: UHT refuses a class with 2048 or more UFUNCTIONs (static_assert on the
+    // generated FuncInfo array, whose count is an 11-bit field). One library per module
+    // overflowed at ~250 content tables, so the per-table functions are split across
+    // numbered libraries (U<Prefix>QueryBuilderBlueprintLibrary, ...Library2, ...), each
+    // kept under QUERY_BUILDER_FUNCTIONS_PER_CLASS. The predicate functions stay in the
+    // last one. A module under the cap generates exactly the single library it did before.
+    const QUERY_BUILDER_FUNCTIONS_PER_CLASS: usize = 1500;
+    let source_function_count = |source_meta: &QueryBuilderSourceMeta| -> usize {
+        3 + source_meta
+            .fields
+            .iter()
+            .filter(|(_, _, _, field_ty)| {
+                supports_blueprint_query_filter(module, field_ty) && blueprint_predicate_kind(field_ty).is_some()
+            })
+            .count()
+    };
+    let library_class_name = |index: usize| -> String {
+        if index == 0 {
+            format!("U{module_prefix}QueryBuilderBlueprintLibrary")
+        } else {
+            format!("U{module_prefix}QueryBuilderBlueprintLibrary{}", index + 1)
+        }
+    };
+    let write_append_predicate = |output: &mut UnrealCppAutogen| {
+        writeln!(output, "private:");
+        writeln!(
+            output,
+            "    static FString AppendPredicate(const FString& Sql, const FString& Predicate)"
+        );
+        writeln!(output, "    {{");
+        writeln!(output, "        if (Sql.Contains(TEXT(\" WHERE \")))");
+        writeln!(output, "        {{");
+        writeln!(
+            output,
+            "            return Sql + TEXT(\" AND (\") + Predicate + TEXT(\")\");"
+        );
+        writeln!(output, "        }}");
+        writeln!(
+            output,
+            "        return Sql + TEXT(\" WHERE (\") + Predicate + TEXT(\")\");"
+        );
+        writeln!(output, "    }}");
+    };
+    let write_library_header = |output: &mut UnrealCppAutogen, index: usize| {
+        writeln!(output, "UCLASS(BlueprintType)");
+        writeln!(
+            output,
+            "class {api_macro} {} : public UBlueprintFunctionLibrary",
+            library_class_name(index)
+        );
+        writeln!(output, "{{");
+        writeln!(output, "    GENERATED_BODY()");
+        writeln!(output);
+        writeln!(output, "public:");
+        writeln!(output);
+    };
+
+    let mut library_index = 0usize;
+    let mut library_functions = 0usize;
+    write_library_header(output, library_index);
 
     for source_meta in &source_metas {
+        let this_source_functions = source_function_count(source_meta);
+        if library_functions > 0 && library_functions + this_source_functions > QUERY_BUILDER_FUNCTIONS_PER_CLASS {
+            write_append_predicate(output);
+            writeln!(output, "}};");
+            writeln!(output);
+            library_index += 1;
+            library_functions = 0;
+            write_library_header(output, library_index);
+        }
+        library_functions += this_source_functions;
         let source_pascal = &source_meta.source_pascal;
         let source_name = &source_meta.source_name;
         let query_struct = format!("F{module_prefix}{source_pascal}Query");
@@ -3792,24 +3852,7 @@ fn generate_query_builder_types(
     writeln!(output, "    }}");
     writeln!(output);
 
-    writeln!(output, "private:");
-    writeln!(
-        output,
-        "    static FString AppendPredicate(const FString& Sql, const FString& Predicate)"
-    );
-    writeln!(output, "    {{");
-    writeln!(output, "        if (Sql.Contains(TEXT(\" WHERE \")))");
-    writeln!(output, "        {{");
-    writeln!(
-        output,
-        "            return Sql + TEXT(\" AND (\") + Predicate + TEXT(\")\");"
-    );
-    writeln!(output, "        }}");
-    writeln!(
-        output,
-        "        return Sql + TEXT(\" WHERE (\") + Predicate + TEXT(\")\");"
-    );
-    writeln!(output, "    }}");
+    write_append_predicate(output);
     writeln!(output, "}};");
     writeln!(output);
 }
