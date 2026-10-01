@@ -38,6 +38,10 @@
 #include "ModuleBindings/Types/UnsubscribeType.g.h"
 #include "ModuleBindings/Optionals/SpacetimeDbSdkOptionalQueryRows.g.h"
 
+// The test macros (LOG_Category, TEST_ROUNDTRIP, ...) exist only with automation tests compiled in
+// (SpacetimeDBBSATNTestOrg.h), so the test does too: Test and Shipping targets compile without it.
+#if WITH_DEV_AUTOMATION_TESTS
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Simple Automation Test entry-point
@@ -360,3 +364,5 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 	return true;
 }
+
+#endif // WITH_DEV_AUTOMATION_TESTS
