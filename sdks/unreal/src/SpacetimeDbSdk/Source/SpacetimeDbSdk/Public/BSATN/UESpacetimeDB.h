@@ -1161,19 +1161,27 @@ namespace UE::SpacetimeDB {
 #define UE_SPACETIMEDB_DESERIALIZE_FIELDS(reader, obj, ...) \
 	UE_SPACETIMEDB_FOR_EACH_ARG(UE_SPACETIMEDB_DESERIALIZE_FIELD, obj, reader, __VA_ARGS__)
 
-// Macro utilities for variadic expansion (supports up to 50 fields).
+// Macro utilities for variadic expansion (supports up to 63 fields).
 // Limit raised from 30 to accommodate union-schema typed-table args used by
 // the GameConfig elimination plan (e.g. FBowAbilityArgsType has 43 fields).
+// 63 is the most this ladder can carry: UE_SPACETIMEDB_FOR_EACH_ARG passes a struct's
+// fields plus every UE_SPACETIMEDB_FE_<N> name to UE_SPACETIMEDB_GET_MACRO, and MSVC
+// accepts 127 arguments in one macro invocation (63 + 63 = 126).
 #define UE_SPACETIMEDB_GET_MACRO( \
 	_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, \
 	_11, _12, _13, _14, _15, _16, _17, _18, _19, _20, \
 	_21, _22, _23, _24, _25, _26, _27, _28, _29, _30, \
 	_31, _32, _33, _34, _35, _36, _37, _38, _39, _40, \
-	_41, _42, _43, _44, _45, _46, _47, _48, _49, _50, NAME, ...) NAME
+	_41, _42, _43, _44, _45, _46, _47, _48, _49, _50, \
+	_51, _52, _53, _54, _55, _56, _57, _58, _59, _60, \
+	_61, _62, _63, NAME, ...) NAME
 
 
 #define UE_SPACETIMEDB_FOR_EACH_ARG(MACRO, obj, extra, ...) \
 	UE_SPACETIMEDB_GET_MACRO(__VA_ARGS__, \
+		UE_SPACETIMEDB_FE_63, UE_SPACETIMEDB_FE_62, UE_SPACETIMEDB_FE_61, UE_SPACETIMEDB_FE_60, UE_SPACETIMEDB_FE_59, \
+		UE_SPACETIMEDB_FE_58, UE_SPACETIMEDB_FE_57, UE_SPACETIMEDB_FE_56, UE_SPACETIMEDB_FE_55, UE_SPACETIMEDB_FE_54, \
+		UE_SPACETIMEDB_FE_53, UE_SPACETIMEDB_FE_52, UE_SPACETIMEDB_FE_51, \
 		UE_SPACETIMEDB_FE_50, UE_SPACETIMEDB_FE_49, UE_SPACETIMEDB_FE_48, UE_SPACETIMEDB_FE_47, UE_SPACETIMEDB_FE_46, \
 		UE_SPACETIMEDB_FE_45, UE_SPACETIMEDB_FE_44, UE_SPACETIMEDB_FE_43, UE_SPACETIMEDB_FE_42, UE_SPACETIMEDB_FE_41, \
 		UE_SPACETIMEDB_FE_40, UE_SPACETIMEDB_FE_39, UE_SPACETIMEDB_FE_38, UE_SPACETIMEDB_FE_37, UE_SPACETIMEDB_FE_36, \
@@ -1187,7 +1195,7 @@ namespace UE::SpacetimeDB {
 	(MACRO, obj, extra, __VA_ARGS__)
 
 
-// Field expansion macros (1-50 fields)
+// Field expansion macros (1-63 fields)
 #define UE_SPACETIMEDB_FE_1(MACRO, obj, extra, X) MACRO(obj, extra, X)
 #define UE_SPACETIMEDB_FE_2(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_1(MACRO, obj, extra, __VA_ARGS__)
 #define UE_SPACETIMEDB_FE_3(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_2(MACRO, obj, extra, __VA_ARGS__)
@@ -1238,6 +1246,19 @@ namespace UE::SpacetimeDB {
 #define UE_SPACETIMEDB_FE_48(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_47(MACRO, obj, extra, __VA_ARGS__)
 #define UE_SPACETIMEDB_FE_49(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_48(MACRO, obj, extra, __VA_ARGS__)
 #define UE_SPACETIMEDB_FE_50(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_49(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_51(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_50(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_52(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_51(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_53(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_52(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_54(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_53(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_55(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_54(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_56(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_55(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_57(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_56(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_58(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_57(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_59(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_58(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_60(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_59(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_61(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_60(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_62(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_61(MACRO, obj, extra, __VA_ARGS__)
+#define UE_SPACETIMEDB_FE_63(MACRO, obj, extra, X, ...) MACRO(obj, extra, X) UE_SPACETIMEDB_FE_62(MACRO, obj, extra, __VA_ARGS__)
 
 /** @endcond */ // end of INTERNAL
 
